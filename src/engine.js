@@ -29,8 +29,8 @@ const Config = {
   vehicleSafeDistance: 60,
 
   // Spawn settings
-  spawnInterval: 1500,        // Base spawn interval in ms (faster!)
-  spawnVariance: 1500,        // Random variance
+  spawnInterval: 3000,        // Base spawn interval in ms (slower spawn rate)
+  spawnVariance: 2000,        // Random variance
   spawnProbabilities: {
     regular: 0.65,            // 65% regular cars
     ambulance: 0.10,          // 10% ambulances
@@ -1009,13 +1009,105 @@ class Renderer {
       ctx.fillText('⚠️ INTERSECTION BLOCKED ⚠️', 250, 750);
     }
 
-    // Queue indicators (corners)
-    ctx.font = '14px Arial';
+    // Detailed queue indicators with vehicle type breakdown (positioned in BLACK areas, NOT on roads)
+    // Roads are x=200-600, y=200-600. Stay OUTSIDE these ranges!
+    this.drawQueueIndicator(ctx, gameState, 'north', 250, 70);   // North - move left
+    this.drawQueueIndicator(ctx, gameState, 'south', 410, 650);  // South - move right
+    this.drawQueueIndicator(ctx, gameState, 'east', 640, 320);   // East - move north (up)
+    this.drawQueueIndicator(ctx, gameState, 'west', 20, 480);    // West - move south (down)
+  }
+
+  drawQueueIndicator(ctx, gameState, direction, x, y) {
+    const queue = gameState.queues[direction];
+
+    // Count by type
+    const counts = {
+      ambulance: 0,
+      police: 0,
+      government: 0,
+      regular: 0
+    };
+
+    let totalPenalty = 0;
+    for (let vehicle of queue) {
+      counts[vehicle.type]++;
+      // Calculate penalty this queue is costing
+      const weight = Config.waitWeights[vehicle.type];
+      totalPenalty += weight * Config.baseDeduction * 10; // per second
+    }
+
+    // Calculate penalty for all vehicles in this direction (including moving)
+    for (let vehicle of gameState.vehicles) {
+      if (vehicle.direction === direction && vehicle.state === 'queued') {
+        const weight = Config.waitWeights[vehicle.type];
+        totalPenalty += weight * Config.baseDeduction * 10;
+      }
+    }
+
+    // Determine urgency level (visual indicator without giving rules)
+    const urgency = totalPenalty > 5 ? 'critical' : totalPenalty > 2 ? 'high' : totalPenalty > 0.5 ? 'medium' : 'low';
+
+    // Background box with urgency color
+    const boxWidth = 140;
+    const boxHeight = 70;
+
+    // Color based on urgency (visual feedback!)
+    let bgColor;
+    if (urgency === 'critical') {
+      bgColor = 'rgba(255, 0, 0, 0.7)';  // Red - critical!
+    } else if (urgency === 'high') {
+      bgColor = 'rgba(255, 140, 0, 0.7)'; // Orange - urgent
+    } else if (urgency === 'medium') {
+      bgColor = 'rgba(255, 255, 0, 0.6)'; // Yellow - attention
+    } else {
+      bgColor = 'rgba(0, 100, 0, 0.5)';   // Green - ok
+    }
+
+    ctx.fillStyle = bgColor;
+    ctx.fillRect(x, y, boxWidth, boxHeight);
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, boxWidth, boxHeight);
+
+    // Direction label
+    const dirLabel = {
+      north: '↓ NORTH',
+      south: '↑ SOUTH',
+      east: '← EAST',
+      west: '→ WEST'
+    };
     ctx.fillStyle = '#fff';
-    ctx.fillText(`↓ N: ${gameState.queues.north.length}`, 370, 80);
-    ctx.fillText(`↑ S: ${gameState.queues.south.length}`, 370, 770);
-    ctx.fillText(`← E: ${gameState.queues.east.length}`, 730, 410);
-    ctx.fillText(`→ W: ${gameState.queues.west.length}`, 30, 410);
+    ctx.font = 'bold 14px Arial';
+    ctx.textAlign = 'left';
+    ctx.fillText(dirLabel[direction], x + 5, y + 16);
+
+    // Total count
+    ctx.font = 'bold 16px Arial';
+    ctx.fillText(`Total: ${queue.length}`, x + 5, y + 35);
+
+    // Vehicle type breakdown (small icons/text)
+    ctx.font = '11px Arial';
+    let yOffset = y + 50;
+
+    if (counts.ambulance > 0) {
+      ctx.fillStyle = '#ff0000';
+      ctx.fillText(`🚑 ${counts.ambulance}`, x + 5, yOffset);
+    }
+    if (counts.police > 0) {
+      ctx.fillStyle = '#4444ff';
+      ctx.fillText(`🚓 ${counts.police}`, x + 45, yOffset);
+    }
+    if (counts.government > 0) {
+      ctx.fillStyle = '#ffdd00';
+      ctx.fillText(`🏛️ ${counts.government}`, x + 85, yOffset);
+    }
+    yOffset += 14;
+    if (counts.regular > 0) {
+      ctx.fillStyle = '#aaaaaa';
+      ctx.fillText(`🚗 ${counts.regular}`, x + 5, yOffset);
+    }
+
+    ctx.textAlign = 'left';
   }
 
   drawGameOver(gameState) {
