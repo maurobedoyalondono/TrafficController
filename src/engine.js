@@ -62,6 +62,23 @@ const Config = {
   crashDetectionRadius: 50,     // Larger radius = easier to detect crashes
   crashRotationRange: 45,
 
+  // Pedestrian settings (DANGEROUS - can be hit!)
+  pedestrianEnabled: true,
+  pedestrianSpawnChance: 0.03,   // 3% chance every check
+  pedestrianSpawnInterval: 8000, // Check every 8 seconds
+  pedestrianMaxActive: 2,        // Max 2 pedestrians at once
+  pedestrianSpeed: 0.4,          // VERY slow (vs 1.5 for cars)
+  pedestrianWidth: 15,
+  pedestrianHeight: 20,
+  pedestrianCollisionRadius: 25, // Collision detection
+  pedestrianHitPenalty: 600,     // HEAVY penalty for hitting pedestrian
+
+  // Blood effect settings
+  bloodParticleCount: 12,
+  bloodParticleSpeed: 2,
+  bloodSplotchDuration: 5000,    // 5 seconds
+  bloodFadeDuration: 2000,       // 2 seconds
+
   // Game speed
   fps: 60
 };
@@ -160,6 +177,117 @@ class Vehicle {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
+// PEDESTRIAN CLASS
+// ───────────────────────────────────────────────────────────────────────────────
+
+class Pedestrian {
+  constructor(id, direction, spawnTime) {
+    this.id = id;
+    this.direction = direction;    // 'north', 'south', 'east', 'west'
+    this.spawnTime = spawnTime;
+    this.state = 'crossing';       // 'crossing', 'hit', 'exited'
+
+    // Position and movement
+    this.x = 0;
+    this.y = 0;
+    this.speed = Config.pedestrianSpeed;
+
+    // Random type for visual variety
+    const types = ['adult', 'elderly', 'kid'];
+    this.type = types[Math.floor(Math.random() * types.length)];
+
+    // Hit state
+    this.hit = false;
+    this.hitTime = null;
+    this.bloodParticles = [];
+
+    this.initializePosition();
+  }
+
+  initializePosition() {
+    // Pedestrians walk on crosswalks at intersection edges
+    // Offset from car lanes to avoid same-position spawning
+    const offset = 20; // Distance from intersection edge
+
+    switch (this.direction) {
+      case 'north':  // Walking down (same direction as north cars)
+        this.x = Config.intersectionLeft - offset;  // Left side of intersection
+        this.y = -50;
+        break;
+      case 'south':  // Walking up (same direction as south cars)
+        this.x = Config.intersectionRight + offset; // Right side of intersection
+        this.y = Config.canvasHeight + 50;
+        break;
+      case 'east':   // Walking left (same direction as east cars)
+        this.x = Config.canvasWidth + 50;
+        this.y = Config.intersectionTop - offset;   // Top side of intersection
+        break;
+      case 'west':   // Walking right (same direction as west cars)
+        this.x = -50;
+        this.y = Config.intersectionBottom + offset; // Bottom side of intersection
+        break;
+    }
+  }
+
+  hasExitedMap() {
+    return this.x < -100 || this.x > Config.canvasWidth + 100 ||
+           this.y < -100 || this.y > Config.canvasHeight + 100;
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// BLOOD PARTICLE CLASS (for pedestrian hits)
+// ───────────────────────────────────────────────────────────────────────────────
+
+class BloodParticle {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    this.vx = (Math.random() - 0.5) * Config.bloodParticleSpeed * 2;
+    this.vy = (Math.random() - 0.5) * Config.bloodParticleSpeed * 2;
+    this.size = Math.random() * 4 + 2;
+    this.life = 1.0;  // Fade from 1 to 0
+    this.createdAt = Date.now();
+  }
+
+  update(deltaTime) {
+    this.x += this.vx;
+    this.y += this.vy;
+    this.vy += 0.05; // Gravity
+
+    // Fade out
+    const age = Date.now() - this.createdAt;
+    this.life = Math.max(0, 1 - (age / Config.bloodFadeDuration));
+  }
+
+  isDead() {
+    return this.life <= 0;
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// BLOOD SPLOTCH CLASS (stays on ground)
+// ───────────────────────────────────────────────────────────────────────────────
+
+class BloodSplotch {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    this.size = Math.random() * 20 + 15;
+    this.createdAt = Date.now();
+  }
+
+  isExpired() {
+    return Date.now() - this.createdAt > Config.bloodSplotchDuration;
+  }
+
+  getOpacity() {
+    const age = Date.now() - this.createdAt;
+    return Math.max(0, 1 - (age / Config.bloodSplotchDuration));
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
 // GAME STATE CLASS
 // ───────────────────────────────────────────────────────────────────────────────
 
@@ -181,6 +309,12 @@ class GameState {
       police: 0,
       government: 0
     };
+
+    // Pedestrians (DANGEROUS!)
+    this.pedestrians = [];
+    this.pedestriansHit = 0;
+    this.bloodParticles = [];
+    this.bloodSplotches = [];
 
     // Traffic lights
     this.lights = {
@@ -547,6 +681,198 @@ class VehicleManager {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
+// PEDESTRIAN MANAGER
+// ───────────────────────────────────────────────────────────────────────────────
+
+class PedestrianManager {
+  constructor() {
+    this.nextPedestrianId = 0;
+    this.lastSpawnCheck = Date.now();
+  }
+
+  checkSpawn(gameState) {
+    if (!Config.pedestrianEnabled) return;
+
+    const now = Date.now();
+    const timeSinceCheck = now - this.lastSpawnCheck;
+
+    if (timeSinceCheck < Config.pedestrianSpawnInterval) return;
+
+    // Only spawn if conditions are right
+    if (gameState.pedestrians.length >= Config.pedestrianMaxActive) {
+      this.lastSpawnCheck = now;
+      return;
+    }
+
+    // No spawning during crashes (too chaotic)
+    if (gameState.crashedVehicles.length > 0) {
+      this.lastSpawnCheck = now;
+      return;
+    }
+
+    // No spawning in first 10 seconds (give player time to learn)
+    if (gameState.timeElapsed < 10) {
+      this.lastSpawnCheck = now;
+      return;
+    }
+
+    // Random chance to spawn
+    if (Math.random() < Config.pedestrianSpawnChance) {
+      this.spawnPedestrian(gameState);
+    }
+
+    this.lastSpawnCheck = now;
+  }
+
+  spawnPedestrian(gameState) {
+    const directions = ['north', 'south', 'east', 'west'];
+    const direction = directions[Math.floor(Math.random() * directions.length)];
+
+    const pedestrian = new Pedestrian(this.nextPedestrianId++, direction, Date.now());
+    gameState.pedestrians.push(pedestrian);
+
+    console.log(`🚶 Pedestrian spawned from ${direction}`);
+  }
+
+  updatePedestrians(deltaTime, gameState) {
+    const toRemove = [];
+
+    // Update blood particles
+    for (let particle of gameState.bloodParticles) {
+      particle.update(deltaTime);
+      if (particle.isDead()) {
+        toRemove.push(particle);
+      }
+    }
+    for (let particle of toRemove) {
+      const index = gameState.bloodParticles.indexOf(particle);
+      if (index !== -1) gameState.bloodParticles.splice(index, 1);
+    }
+
+    // Remove expired blood splotches
+    toRemove.length = 0;
+    for (let splotch of gameState.bloodSplotches) {
+      if (splotch.isExpired()) {
+        toRemove.push(splotch);
+      }
+    }
+    for (let splotch of toRemove) {
+      const index = gameState.bloodSplotches.indexOf(splotch);
+      if (index !== -1) gameState.bloodSplotches.splice(index, 1);
+    }
+
+    // Update pedestrians
+    toRemove.length = 0;
+    for (let pedestrian of gameState.pedestrians) {
+      if (pedestrian.state === 'exited') {
+        toRemove.push(pedestrian);
+        continue;
+      }
+
+      if (pedestrian.state === 'hit') {
+        // Pedestrian is dead, just wait for cleanup
+        continue;
+      }
+
+      // Move pedestrian (slow!)
+      this.updatePedestrianPosition(pedestrian, deltaTime);
+
+      // Check if exited
+      if (pedestrian.hasExitedMap()) {
+        pedestrian.state = 'exited';
+        toRemove.push(pedestrian);
+      }
+    }
+
+    // Remove exited pedestrians
+    for (let pedestrian of toRemove) {
+      const index = gameState.pedestrians.indexOf(pedestrian);
+      if (index !== -1) {
+        gameState.pedestrians.splice(index, 1);
+      }
+    }
+  }
+
+  updatePedestrianPosition(pedestrian, deltaTime) {
+    const frameSpeed = pedestrian.speed * (deltaTime / 16.67);
+
+    switch (pedestrian.direction) {
+      case 'north':
+        pedestrian.y += frameSpeed;
+        break;
+      case 'south':
+        pedestrian.y -= frameSpeed;
+        break;
+      case 'east':
+        pedestrian.x -= frameSpeed;
+        break;
+      case 'west':
+        pedestrian.x += frameSpeed;
+        break;
+    }
+  }
+
+  checkPedestrianCollisions(gameState) {
+    for (let pedestrian of gameState.pedestrians) {
+      if (pedestrian.state !== 'crossing') continue;
+
+      // Check collision with vehicles
+      for (let vehicle of gameState.vehicles) {
+        if (vehicle.crashed) continue;
+        if (vehicle.state !== 'moving') continue;
+
+        const dx = vehicle.x - pedestrian.x;
+        const dy = vehicle.y - pedestrian.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance < Config.pedestrianCollisionRadius) {
+          this.executePedestrianHit(pedestrian, vehicle, gameState);
+          break;  // One hit is enough
+        }
+      }
+    }
+  }
+
+  executePedestrianHit(pedestrian, vehicle, gameState) {
+    console.error('💀 PEDESTRIAN HIT!', pedestrian.type, 'by', vehicle.type);
+
+    pedestrian.state = 'hit';
+    pedestrian.hit = true;
+    pedestrian.hitTime = Date.now();
+
+    gameState.pedestriansHit++;
+
+    // Heavy score penalty
+    gameState.score = Math.max(0, gameState.score - Config.pedestrianHitPenalty);
+
+    // Create blood particle explosion
+    for (let i = 0; i < Config.bloodParticleCount; i++) {
+      const particle = new BloodParticle(pedestrian.x, pedestrian.y);
+      gameState.bloodParticles.push(particle);
+    }
+
+    // Create blood splotch on ground
+    const splotch = new BloodSplotch(pedestrian.x, pedestrian.y);
+    gameState.bloodSplotches.push(splotch);
+
+    // Screen shake effect (we'll implement in render)
+    gameState.screenShake = {
+      active: true,
+      startTime: Date.now(),
+      duration: 300
+    };
+
+    // Remove pedestrian after short delay (so blood particles can spray first)
+    setTimeout(() => {
+      const index = gameState.pedestrians.indexOf(pedestrian);
+      if (index !== -1) {
+        gameState.pedestrians.splice(index, 1);
+      }
+    }, 100);
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
 // TRAFFIC LIGHT MANAGER
 // ───────────────────────────────────────────────────────────────────────────────
 
@@ -676,16 +1002,42 @@ class Renderer {
   }
 
   render(gameState) {
+    // Apply screen shake if active
+    const ctx = this.ctx;
+    ctx.save();
+    if (gameState.screenShake && gameState.screenShake.active) {
+      const elapsed = Date.now() - gameState.screenShake.startTime;
+      if (elapsed < gameState.screenShake.duration) {
+        const intensity = 5;
+        const shakeX = (Math.random() - 0.5) * intensity;
+        const shakeY = (Math.random() - 0.5) * intensity;
+        ctx.translate(shakeX, shakeY);
+      } else {
+        gameState.screenShake.active = false;
+      }
+    }
+
     this.clear();
     this.drawRoads();
     this.drawIntersection();
+
+    // Draw blood splotches FIRST (on ground, under everything)
+    this.drawBloodSplotches(gameState);
+
     this.drawTrafficLights(gameState);
     this.drawVehicles(gameState);
+
+    // Draw pedestrians and blood particles
+    this.drawPedestrians(gameState);
+    this.drawBloodParticles(gameState);
+
     this.drawUI(gameState);
 
     if (!gameState.isRunning) {
       this.drawGameOver(gameState);
     }
+
+    ctx.restore();
   }
 
   clear() {
@@ -976,6 +1328,108 @@ class Renderer {
     return colors[type] || colors.regular;
   }
 
+  drawPedestrians(gameState) {
+    const ctx = this.ctx;
+
+    for (let pedestrian of gameState.pedestrians) {
+      if (pedestrian.state === 'exited' || pedestrian.state === 'hit') continue;
+
+      ctx.save();
+      ctx.translate(pedestrian.x, pedestrian.y);
+
+      const width = Config.pedestrianWidth;
+      const height = Config.pedestrianHeight;
+
+      // Draw simple person shape
+      const isVertical = pedestrian.direction === 'north' || pedestrian.direction === 'south';
+
+      if (isVertical) {
+        // Head
+        ctx.fillStyle = this.getPedestrianColor(pedestrian.type);
+        ctx.beginPath();
+        ctx.arc(0, -height / 3, width / 3, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Body
+        ctx.fillRect(-width / 4, -height / 6, width / 2, height / 2);
+
+        // Legs (simple rectangles)
+        ctx.fillRect(-width / 3, height / 4, width / 4, height / 4);
+        ctx.fillRect(width / 12, height / 4, width / 4, height / 4);
+      } else {
+        // Horizontal orientation for east/west
+        ctx.beginPath();
+        ctx.arc(0, 0, width / 3, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillRect(-width / 6, -width / 4, width / 2, width / 2);
+      }
+
+      // Outline
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      ctx.restore();
+    }
+  }
+
+  getPedestrianColor(type) {
+    const colors = {
+      adult: '#4a90e2',
+      elderly: '#888',
+      kid: '#ffcc00'
+    };
+    return colors[type] || colors.adult;
+  }
+
+  drawBloodParticles(gameState) {
+    const ctx = this.ctx;
+
+    for (let particle of gameState.bloodParticles) {
+      ctx.save();
+
+      ctx.globalAlpha = particle.life;
+      ctx.fillStyle = '#aa0000';
+
+      ctx.beginPath();
+      ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    }
+  }
+
+  drawBloodSplotches(gameState) {
+    const ctx = this.ctx;
+
+    for (let splotch of gameState.bloodSplotches) {
+      ctx.save();
+
+      ctx.globalAlpha = splotch.getOpacity() * 0.6;
+      ctx.fillStyle = '#660000';
+
+      // Draw irregular splotch shape
+      ctx.beginPath();
+      ctx.arc(splotch.x, splotch.y, splotch.size, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Add some splatter effect
+      for (let i = 0; i < 3; i++) {
+        const angle = (Math.PI * 2 / 3) * i;
+        const dist = splotch.size * 0.6;
+        const sx = splotch.x + Math.cos(angle) * dist;
+        const sy = splotch.y + Math.sin(angle) * dist;
+
+        ctx.beginPath();
+        ctx.arc(sx, sy, splotch.size * 0.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.restore();
+    }
+  }
+
   drawUI(gameState) {
     const ctx = this.ctx;
 
@@ -1131,9 +1585,14 @@ class Renderer {
     ctx.fillText(`Time Survived: ${minutes}:${seconds.toString().padStart(2, '0')}`, Config.canvasWidth / 2, 280);
     ctx.fillText(`Total Crashes: ${gameState.totalCrashes}`, Config.canvasWidth / 2, 320);
 
+    if (gameState.pedestriansHit > 0) {
+      ctx.fillStyle = '#ff0000';
+      ctx.fillText(`💀 Pedestrians Hit: ${gameState.pedestriansHit}`, Config.canvasWidth / 2, 350);
+    }
+
     // Crash breakdown
     ctx.font = '18px Arial';
-    let y = 370;
+    let y = gameState.pedestriansHit > 0 ? 400 : 370;
     if (gameState.crashesByType.ambulance > 0) {
       ctx.fillStyle = '#ff0000';
       ctx.fillText(`🚑 Ambulance crashes: ${gameState.crashesByType.ambulance} (FATAL!)`, Config.canvasWidth / 2, y);
@@ -1180,6 +1639,7 @@ class TrafficGameEngine {
     this.gameState = new GameState();
     this.crashDetector = new CrashDetectionManager();
     this.vehicleManager = new VehicleManager();
+    this.pedestrianManager = new PedestrianManager();
     this.lightManager = new TrafficLightManager();
     this.scoringManager = new ScoringManager();
     this.renderer = new Renderer(this.ctx);
@@ -1198,6 +1658,7 @@ class TrafficGameEngine {
     console.log('🚦 Traffic Controller Game Started!');
     console.log('Edit player.js to control the traffic lights.');
     console.log('WARNING: Ambulance crashes = instant game over!');
+    console.log('⚠️  DANGER: Pedestrians may cross! Avoid hitting them!');
     this.gameLoop();
   }
 
@@ -1227,6 +1688,9 @@ class TrafficGameEngine {
     this.vehicleManager.spawnVehicle('east', currentTime, this.gameState);
     this.vehicleManager.spawnVehicle('west', currentTime, this.gameState);
 
+    // Spawn pedestrians (rare!)
+    this.pedestrianManager.checkSpawn(this.gameState);
+
     // Update queues (for player API)
     this.gameState.updateQueues();
 
@@ -1243,8 +1707,14 @@ class TrafficGameEngine {
     // Update vehicles
     this.vehicleManager.updateVehicles(deltaTime, this.gameState);
 
+    // Update pedestrians
+    this.pedestrianManager.updatePedestrians(deltaTime, this.gameState);
+
     // CRASH DETECTION (critical!)
     this.crashDetector.checkForCrashes(this.gameState);
+
+    // PEDESTRIAN COLLISION DETECTION (dangerous!)
+    this.pedestrianManager.checkPedestrianCollisions(this.gameState);
 
     // Update score
     this.scoringManager.updateScore(this.gameState);

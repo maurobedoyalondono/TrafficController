@@ -46,6 +46,8 @@ Every time your function is called, you receive a `gameState` object with everyt
 | `gameState.timeElapsed` | number | Seconds since game started | `45.2` |
 | `gameState.totalCrashes` | number | Total crashes so far | `3` |
 | `gameState.hasActiveCrashes` | boolean | Is intersection blocked by crashes? | `false` |
+| `gameState.pedestrians` | Array | Pedestrians currently crossing (DANGEROUS!) | `[]` |
+| `gameState.pedestriansHit` | number | Total pedestrians you've hit | `0` |
 
 ### Vehicle Queues (Most Important!)
 
@@ -116,6 +118,96 @@ if (northQueue.length > 0) {
 - 🚓 **Police** - High priority, big penalty if they crash
 - 🏛️ **Government** - Medium priority
 - 🚗 **Regular** - Standard cars, lowest priority
+
+---
+
+## 🚶 Pedestrians (DANGEROUS!)
+
+**⚠️ NEW:** Pedestrians may occasionally cross the intersection! They are VERY SLOW and can be hit by vehicles, resulting in severe penalties.
+
+### Pedestrian Properties
+
+Each pedestrian in `gameState.pedestrians` array has:
+
+| Property | Type | Values | Description |
+|----------|------|--------|-------------|
+| `pedestrian.direction` | string | `'north'`, `'south'`, `'east'`, `'west'` | Which way they're crossing |
+| `pedestrian.x` | number | Position | Horizontal position |
+| `pedestrian.y` | number | Position | Vertical position |
+| `pedestrian.type` | string | `'adult'`, `'elderly'`, `'kid'` | Type of pedestrian |
+| `pedestrian.state` | string | `'crossing'`, `'hit'`, `'exited'` | Current state |
+
+### Pedestrian Behavior:
+
+- **Ultra-rare**: Only 3% chance to spawn every 8 seconds
+- **Very slow**: Move at 0.4 speed (cars move at 1.5)
+- **Take 10+ seconds** to cross the intersection
+- **Follow traffic flow**: Same directions as cars (north, south, east, west)
+- **Positioned on crosswalks**: Offset from car lanes to avoid immediate collision
+
+### Pedestrian Hit Penalty:
+
+| Event | Penalty | Visual Effect |
+|-------|---------|---------------|
+| Hit pedestrian | **-600 points** | Blood particle explosion, screen shake, blood splotch on ground |
+
+### Example: Check for Pedestrians
+
+```javascript
+function controlTraffic(gameState) {
+  // Check if any pedestrians are crossing
+  if (gameState.pedestrians.length > 0) {
+    console.log(`⚠️ ${gameState.pedestrians.length} pedestrian(s) crossing!`);
+
+    // Maybe hold the light longer to let them pass?
+    // Or be extra careful when changing lights
+  }
+
+  // Check pedestrians in specific direction
+  for (let ped of gameState.pedestrians) {
+    if (ped.direction === 'north' && ped.state === 'crossing') {
+      console.log('Pedestrian crossing from north - be careful!');
+    }
+  }
+
+  // ... rest of your logic
+}
+```
+
+### Advanced: Avoid Hitting Pedestrians
+
+```javascript
+function controlTraffic(gameState) {
+  // Safety first
+  if (gameState.hasActiveCrashes) return [];
+
+  // Don't give green light if pedestrian is crossing that direction
+  const directions = ['north', 'south', 'east', 'west'];
+
+  for (let dir of directions) {
+    // Check if pedestrian is crossing from this direction
+    const pedInDirection = gameState.pedestrians.some(
+      ped => ped.direction === dir && ped.state === 'crossing'
+    );
+
+    if (pedInDirection) {
+      console.log(`Holding ${dir} - pedestrian crossing!`);
+      continue;  // Skip this direction
+    }
+
+    // Safe to proceed with this direction...
+  }
+
+  // ... rest of your logic
+}
+```
+
+**Important Notes:**
+
+- Pedestrians are RARE - beginners can ignore them initially
+- They move SLOW - gives you time to react if you check `gameState.pedestrians`
+- Heavy penalty but NOT instant game over (unlike ambulance crashes)
+- Advanced players can add pedestrian awareness to their algorithms
 
 ---
 
@@ -192,14 +284,15 @@ function controlTraffic(gameState) {
 5. More vehicles coming crash into the blocked intersection
 6. **Cascading failure!** Points drain rapidly
 
-### Crash Penalties:
+### Crash & Hit Penalties:
 
-| Vehicle Type | Penalty | Effect |
-|--------------|---------|--------|
-| 🚑 Ambulance | **ALL POINTS** | INSTANT GAME OVER! |
-| 🚓 Police | -950 points | Nearly fatal |
-| 🏛️ Government | -400 points | Severe |
-| 🚗 Regular | -200 points | Significant |
+| Event | Penalty | Effect |
+|-------|---------|--------|
+| 🚑 Ambulance crash | **ALL POINTS** | INSTANT GAME OVER! |
+| 🚓 Police crash | -950 points | Nearly fatal |
+| 🏛️ Government crash | -400 points | Severe |
+| 🚗 Regular crash | -200 points | Significant |
+| 🚶 Pedestrian hit | -600 points | Very severe + blood effects |
 
 ### Checking for Crashes:
 
@@ -218,12 +311,13 @@ function controlTraffic(gameState) {
 
 ## 📊 Scoring System (Hidden Mechanics - Discover Through Play!)
 
-Your score starts at **1000 points** and decreases based on:
+Your score starts at **2000 points** and decreases based on:
 
 1. **Wait Time** - Vehicles waiting in queues lose you points
 2. **Vehicle Type** - Some vehicles are more "expensive" to keep waiting
 3. **Crashes** - HUGE penalties (see table above)
 4. **Blocked Intersection** - Crashed vehicles continue to drain points
+5. **Pedestrian Hits** - Heavy penalty (-600 points each)
 
 ### Pro Tips:
 
@@ -231,6 +325,7 @@ Your score starts at **1000 points** and decreases based on:
 - ⏱️ **Don't make vehicles wait too long** - Points drain faster over time
 - 🎯 **Prioritize emergency vehicles** - They cost more when waiting
 - 🔄 **Keep traffic flowing** - Empty queues = happy score
+- 🚶 **Watch for pedestrians** - They're rare but costly if hit!
 
 ---
 
@@ -476,16 +571,22 @@ function controlTraffic(gameState) {
   // 1. Check for crashes
   if (gameState.hasActiveCrashes) return [];
 
-  // 2. Check queues
+  // 2. Check for pedestrians (optional - advanced)
+  if (gameState.pedestrians.length > 0) {
+    console.log('⚠️ Pedestrian crossing!');
+    // Maybe hold lights or be extra careful
+  }
+
+  // 3. Check queues
   const northQueue = gameState.queues.north;
   const southQueue = gameState.queues.south;
   const eastQueue = gameState.queues.east;
   const westQueue = gameState.queues.west;
 
-  // 3. Decide direction
+  // 4. Decide direction
   let choice = ['north'];
 
-  // 4. Safety check
+  // 5. Safety check
   if (isIntersectionSafe(choice)) {
     return choice;
   }
@@ -498,11 +599,16 @@ function controlTraffic(gameState) {
 // - gameState.timeElapsed
 // - gameState.totalCrashes
 // - gameState.hasActiveCrashes
+// - gameState.pedestrians (array of pedestrians currently crossing)
+// - gameState.pedestriansHit (total pedestrians hit)
 // - gameState.queues.{north|south|east|west}
 // - gameState.lights.{north|south|east|west}.state
 // - vehicle.type ('regular'|'ambulance'|'police'|'government')
 // - vehicle.waitTime (seconds)
 // - vehicle.state ('queued'|'moving'|'crashed')
+// - pedestrian.direction ('north'|'south'|'east'|'west')
+// - pedestrian.type ('adult'|'elderly'|'kid')
+// - pedestrian.state ('crossing'|'hit'|'exited')
 
 // Helper function:
 // - isIntersectionSafe(directions) -> true/false
