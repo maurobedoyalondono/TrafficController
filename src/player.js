@@ -18,99 +18,15 @@
  *                            Can return empty array [] for all red
  */
 function controlTraffic(gameState) {
-  // Safety first
-  if (gameState.hasActiveCrashes) {
-    return [];
-  }
+  // Rotate lights every 5 seconds randomly
+  const directions = ['north', 'south', 'east', 'west'];
+  const seconds = Math.floor(gameState.timeElapsed / 5);
 
-  // Check for ambulances first (highest priority)
-  for (let dir of ['north', 'south', 'east', 'west']) {
-    for (let vehicle of gameState.queues[dir]) {
-      if (vehicle.type === 'ambulance') {
-        if (isIntersectionSafe([dir])) {
-          return [dir];
-        }
-      }
-    }
-  }
+  // Use seconds as seed for consistent but "random" rotation
+  const randomIndex = (seconds * 7) % 4;
+  const currentDirection = directions[randomIndex];
 
-  // Count pedestrians in each direction
-  const pedestrianCounts = {
-    north: 0,
-    south: 0,
-    east: 0,
-    west: 0
-  };
-
-  if (gameState.pedestrians) {
-    for (let ped of gameState.pedestrians) {
-      if (ped.state === 'crossing' || ped.state === 'queued') {
-        pedestrianCounts[ped.direction]++;
-      }
-    }
-  }
-
-  // Find direction with most pedestrians
-  let maxPedestrians = -1;
-  let priorityDir = null;
-
-  for (let dir of ['north', 'south', 'east', 'west']) {
-    if (pedestrianCounts[dir] > maxPedestrians) {
-      maxPedestrians = pedestrianCounts[dir];
-      priorityDir = dir;
-    }
-  }
-
-  // If pedestrians waiting, give them priority
-  if (maxPedestrians > 0 && priorityDir && isIntersectionSafe([priorityDir])) {
-    return [priorityDir];
-  }
-
-  // Count police cars in each direction
-  const policeCounts = {
-    north: 0,
-    south: 0,
-    east: 0,
-    west: 0
-  };
-
-  for (let dir of ['north', 'south', 'east', 'west']) {
-    for (let vehicle of gameState.queues[dir]) {
-      if (vehicle.type === 'police') {
-        policeCounts[dir]++;
-      }
-    }
-  }
-
-  // Find direction with most police
-  let maxPolice = -1;
-  priorityDir = null;
-
-  for (let dir of ['north', 'south', 'east', 'west']) {
-    if (policeCounts[dir] > maxPolice) {
-      maxPolice = policeCounts[dir];
-      priorityDir = dir;
-    }
-  }
-
-  // If no police cars anywhere, use total cars
-  if (maxPolice === 0) {
-    let maxTotal = -1;
-    for (let dir of ['north', 'south', 'east', 'west']) {
-      const total = gameState.queues[dir].length;
-      if (total > maxTotal) {
-        maxTotal = total;
-        priorityDir = dir;
-      }
-    }
-  }
-
-  // Give priority direction green light
-  if (priorityDir && isIntersectionSafe([priorityDir])) {
-    return [priorityDir];
-  }
-
-  return [];
+  return [currentDirection];
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
