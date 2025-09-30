@@ -64,9 +64,9 @@ const Config = {
 
   // Pedestrian settings (DANGEROUS - can be hit!)
   pedestrianEnabled: true,
-  pedestrianSpawnChance: 0.03,   // 3% chance every check
-  pedestrianSpawnInterval: 8000, // Check every 8 seconds
-  pedestrianMaxActive: 2,        // Max 2 pedestrians at once
+  pedestrianSpawnChance: 0.8,    // 80% chance every check (FOR TESTING!)
+  pedestrianSpawnInterval: 3000, // Check every 3 seconds (FOR TESTING!)
+  pedestrianMaxActive: 3,        // Max 3 pedestrians at once
   pedestrianSpeed: 0.4,          // VERY slow (vs 1.5 for cars)
   pedestrianWidth: 15,
   pedestrianHeight: 20,
@@ -205,26 +205,30 @@ class Pedestrian {
   }
 
   initializePosition() {
-    // Pedestrians walk on crosswalks at intersection edges
-    // Offset from car lanes to avoid same-position spawning
-    const offset = 20; // Distance from intersection edge
+    // Pedestrians walk on SIDEWALKS - FAR to the SIDE of car lanes
+    // Roads are 100px wide (roadWidth = 100), center at 350-450
+    // Cars at center (400), pedestrians MUCH further away
+
+    const centerX = Config.canvasWidth / 2;  // 400
+    const centerY = Config.canvasHeight / 2; // 400
+    const pedestrianLaneOffset = 45; // Pedestrians walk 45px from center (well away from cars!)
 
     switch (this.direction) {
-      case 'north':  // Walking down (same direction as north cars)
-        this.x = Config.intersectionLeft - offset;  // Left side of intersection
+      case 'north':  // Walking down - use LEFT side of vertical road
+        this.x = centerX - pedestrianLaneOffset;  // 355 (left sidewalk)
         this.y = -50;
         break;
-      case 'south':  // Walking up (same direction as south cars)
-        this.x = Config.intersectionRight + offset; // Right side of intersection
+      case 'south':  // Walking up - use RIGHT side of vertical road
+        this.x = centerX + pedestrianLaneOffset;  // 445 (right sidewalk)
         this.y = Config.canvasHeight + 50;
         break;
-      case 'east':   // Walking left (same direction as east cars)
+      case 'east':   // Walking left - use TOP side of horizontal road
         this.x = Config.canvasWidth + 50;
-        this.y = Config.intersectionTop - offset;   // Top side of intersection
+        this.y = centerY - pedestrianLaneOffset;  // 355 (top sidewalk)
         break;
-      case 'west':   // Walking right (same direction as west cars)
+      case 'west':   // Walking right - use BOTTOM side of horizontal road
         this.x = -50;
-        this.y = Config.intersectionBottom + offset; // Bottom side of intersection
+        this.y = centerY + pedestrianLaneOffset;  // 445 (bottom sidewalk)
         break;
     }
   }
@@ -710,8 +714,8 @@ class PedestrianManager {
       return;
     }
 
-    // No spawning in first 10 seconds (give player time to learn)
-    if (gameState.timeElapsed < 10) {
+    // No spawning in first 3 seconds (give player time to learn)
+    if (gameState.timeElapsed < 3) {
       this.lastSpawnCheck = now;
       return;
     }
@@ -774,8 +778,8 @@ class PedestrianManager {
         continue;
       }
 
-      // Move pedestrian (slow!)
-      this.updatePedestrianPosition(pedestrian, deltaTime);
+      // Move pedestrian (slow!) - respects traffic lights
+      this.updatePedestrianPosition(pedestrian, deltaTime, gameState);
 
       // Check if exited
       if (pedestrian.hasExitedMap()) {
@@ -793,7 +797,27 @@ class PedestrianManager {
     }
   }
 
-  updatePedestrianPosition(pedestrian, deltaTime) {
+  updatePedestrianPosition(pedestrian, deltaTime, gameState) {
+    // Check if approaching intersection (just like vehicles do)
+    const atIntersectionEntrance = this.isAtIntersectionEntrance(pedestrian);
+    const inIntersection = this.isInIntersection(pedestrian);
+    const lightState = gameState.lights[pedestrian.direction].state;
+
+    // Check if another pedestrian is blocking the path
+    const pathClear = this.isPedestrianPathClear(pedestrian, gameState);
+
+    // Simple logic: if at intersection entrance and red light, STOP. Otherwise MOVE.
+    if (atIntersectionEntrance && !inIntersection && lightState === 'red') {
+      // Stop at red light
+      return;
+    }
+
+    // If path is blocked by another pedestrian, STOP
+    if (!pathClear) {
+      return;
+    }
+
+    // Move pedestrian (either before intersection, in intersection, or past intersection)
     const frameSpeed = pedestrian.speed * (deltaTime / 16.67);
 
     switch (pedestrian.direction) {
@@ -810,6 +834,69 @@ class PedestrianManager {
         pedestrian.x += frameSpeed;
         break;
     }
+  }
+
+  isPedestrianPathClear(pedestrian, gameState) {
+    // Check if another pedestrian is ahead in same direction
+    const safeDistance = 20; // Pedestrians need 20px spacing
+
+    for (let other of gameState.pedestrians) {
+      if (other.id === pedestrian.id) continue;
+      if (other.direction !== pedestrian.direction) continue;
+      if (other.state !== 'crossing') continue;
+
+      // Calculate distance in direction of travel
+      const distance = this.getPedestrianDistanceInDirection(pedestrian, other);
+
+      // If another pedestrian is ahead and too close, path is blocked
+      if (distance > 0 && distance < safeDistance) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  getPedestrianDistanceInDirection(pedestrian, other) {
+    // Calculate distance in direction of travel (same as vehicles)
+    switch (pedestrian.direction) {
+      case 'north':  // Moving down (positive y)
+        return other.y - pedestrian.y;
+      case 'south':  // Moving up (negative y)
+        return pedestrian.y - other.y;
+      case 'east':   // Moving left (negative x)
+        return pedestrian.x - other.x;
+      case 'west':   // Moving right (positive x)
+        return other.x - pedestrian.x;
+    }
+    return Infinity;
+  }
+
+  isAtIntersectionEntrance(pedestrian) {
+    // Check if pedestrian is RIGHT AT the intersection entrance (like vehicles)
+    const entranceDistance = 30; // Stop zone
+    const intersectionEdge = Config.intersectionLeft; // 300
+    const intersectionFarEdge = Config.intersectionRight; // 500
+
+    switch (pedestrian.direction) {
+      case 'north':
+        return pedestrian.y >= (intersectionEdge - entranceDistance) && pedestrian.y < intersectionEdge;
+      case 'south':
+        return pedestrian.y <= (intersectionFarEdge + entranceDistance) && pedestrian.y > intersectionFarEdge;
+      case 'east':
+        return pedestrian.x <= (intersectionFarEdge + entranceDistance) && pedestrian.x > intersectionFarEdge;
+      case 'west':
+        return pedestrian.x >= (intersectionEdge - entranceDistance) && pedestrian.x < intersectionEdge;
+    }
+    return false;
+  }
+
+  isInIntersection(pedestrian) {
+    // Check if pedestrian is inside the intersection
+    return pedestrian.x >= Config.intersectionLeft &&
+           pedestrian.x <= Config.intersectionRight &&
+           pedestrian.y >= Config.intersectionTop &&
+           pedestrian.y <= Config.intersectionBottom;
   }
 
   checkPedestrianCollisions(gameState) {
@@ -1060,18 +1147,56 @@ class Renderer {
     // Horizontal road (east-west)
     ctx.fillRect(0, centerY - roadWidth / 2, Config.canvasWidth, roadWidth);
 
-    // Lane markings
+    // PEDESTRIAN SIDEWALKS (lighter color on sides of roads)
+    const pedestrianLaneWidth = 25;  // WIDER sidewalks
+    const pedestrianLaneOffset = 45;  // MATCH pedestrian position offset!
+    ctx.fillStyle = '#666';  // Lighter gray for sidewalks
+
+    // Vertical road sidewalks (north-south)
+    // Left sidewalk centered at x = 355
+    ctx.fillRect(centerX - pedestrianLaneOffset - pedestrianLaneWidth / 2, 0, pedestrianLaneWidth, Config.canvasHeight);
+    // Right sidewalk centered at x = 445
+    ctx.fillRect(centerX + pedestrianLaneOffset - pedestrianLaneWidth / 2, 0, pedestrianLaneWidth, Config.canvasHeight);
+
+    // Horizontal road sidewalks (east-west)
+    // Top sidewalk centered at y = 355
+    ctx.fillRect(0, centerY - pedestrianLaneOffset - pedestrianLaneWidth / 2, Config.canvasWidth, pedestrianLaneWidth);
+    // Bottom sidewalk centered at y = 445
+    ctx.fillRect(0, centerY + pedestrianLaneOffset - pedestrianLaneWidth / 2, Config.canvasWidth, pedestrianLaneWidth);
+
+    // Add crosswalk stripes on sidewalks (white dashed lines)
+    ctx.fillStyle = '#fff';
+    const stripeWidth = 3;
+    const stripeSpacing = 10;
+
+    // Vertical sidewalks crosswalk stripes
+    for (let y = 0; y < Config.canvasHeight; y += stripeSpacing + stripeWidth) {
+      // Left sidewalk
+      ctx.fillRect(centerX - pedestrianLaneOffset - stripeWidth, y, stripeWidth, stripeSpacing);
+      // Right sidewalk
+      ctx.fillRect(centerX + pedestrianLaneOffset, y, stripeWidth, stripeSpacing);
+    }
+
+    // Horizontal sidewalks crosswalk stripes
+    for (let x = 0; x < Config.canvasWidth; x += stripeSpacing + stripeWidth) {
+      // Top sidewalk
+      ctx.fillRect(x, centerY - pedestrianLaneOffset - stripeWidth, stripeSpacing, stripeWidth);
+      // Bottom sidewalk
+      ctx.fillRect(x, centerY + pedestrianLaneOffset, stripeSpacing, stripeWidth);
+    }
+
+    // Car lane center line (yellow dashed)
     ctx.strokeStyle = '#ffcc00';
     ctx.lineWidth = 2;
     ctx.setLineDash([20, 10]);
 
-    // Vertical center line
+    // Vertical center line (for cars)
     ctx.beginPath();
     ctx.moveTo(centerX, 0);
     ctx.lineTo(centerX, Config.canvasHeight);
     ctx.stroke();
 
-    // Horizontal center line
+    // Horizontal center line (for cars)
     ctx.beginPath();
     ctx.moveTo(0, centerY);
     ctx.lineTo(Config.canvasWidth, centerY);
@@ -1337,38 +1462,71 @@ class Renderer {
       ctx.save();
       ctx.translate(pedestrian.x, pedestrian.y);
 
-      const width = Config.pedestrianWidth;
-      const height = Config.pedestrianHeight;
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
 
-      // Draw simple person shape
+      const color = this.getPedestrianColor(pedestrian.type);
       const isVertical = pedestrian.direction === 'north' || pedestrian.direction === 'south';
 
       if (isVertical) {
+        // VERTICAL STICK FIGURE (north/south)
         // Head
-        ctx.fillStyle = this.getPedestrianColor(pedestrian.type);
+        ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.arc(0, -height / 3, width / 3, 0, Math.PI * 2);
+        ctx.arc(0, -8, 4, 0, Math.PI * 2);
         ctx.fill();
+        ctx.stroke();
 
-        // Body
-        ctx.fillRect(-width / 4, -height / 6, width / 2, height / 2);
+        // Body (vertical line)
+        ctx.beginPath();
+        ctx.moveTo(0, -4);
+        ctx.lineTo(0, 4);
+        ctx.stroke();
 
-        // Legs (simple rectangles)
-        ctx.fillRect(-width / 3, height / 4, width / 4, height / 4);
-        ctx.fillRect(width / 12, height / 4, width / 4, height / 4);
+        // Arms (horizontal line)
+        ctx.beginPath();
+        ctx.moveTo(-4, -1);
+        ctx.lineTo(4, -1);
+        ctx.stroke();
+
+        // Legs (V shape)
+        ctx.beginPath();
+        ctx.moveTo(0, 4);
+        ctx.lineTo(-3, 10);
+        ctx.moveTo(0, 4);
+        ctx.lineTo(3, 10);
+        ctx.stroke();
       } else {
-        // Horizontal orientation for east/west
+        // HORIZONTAL STICK FIGURE (east/west)
+        // Head
+        ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.arc(0, 0, width / 3, 0, Math.PI * 2);
+        ctx.arc(-8, 0, 4, 0, Math.PI * 2);
         ctx.fill();
+        ctx.stroke();
 
-        ctx.fillRect(-width / 6, -width / 4, width / 2, width / 2);
+        // Body (horizontal line)
+        ctx.beginPath();
+        ctx.moveTo(-4, 0);
+        ctx.lineTo(4, 0);
+        ctx.stroke();
+
+        // Arms (vertical line)
+        ctx.beginPath();
+        ctx.moveTo(-1, -4);
+        ctx.lineTo(-1, 4);
+        ctx.stroke();
+
+        // Legs (V shape rotated)
+        ctx.beginPath();
+        ctx.moveTo(4, 0);
+        ctx.lineTo(10, -3);
+        ctx.moveTo(4, 0);
+        ctx.lineTo(10, 3);
+        ctx.stroke();
       }
-
-      // Outline
-      ctx.strokeStyle = '#000';
-      ctx.lineWidth = 1;
-      ctx.stroke();
 
       ctx.restore();
     }
