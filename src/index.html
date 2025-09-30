@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🚦 Traffic Controller Game</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Main Container -->
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <h1 class="title">🚦 Traffic Controller</h1>
+      <p class="subtitle">Control the lights. Avoid crashes. Survive!</p>
+    </header>
+
+    <!-- Game Canvas Container -->
+    <div class="game-container">
+      <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <!-- Instructions Panel -->
+    <div class="instructions">
+      <h2>🎮 How to Play</h2>
+      <ol>
+        <li>Edit <code>player.js</code> to write your traffic control algorithm</li>
+        <li>Refresh this page to test your changes</li>
+        <li>Keep your score above zero to survive</li>
+        <li><strong>⚠️ WARNING:</strong> Ambulance crashes = instant game over!</li>
+      </ol>
+      <div class="info-grid">
+        <div class="info-card">
+          <h3>🚗 Vehicle Types</h3>
+          <ul>
+            <li><span class="vehicle-type ambulance">🚑 Ambulance</span> - Highest priority!</li>
+            <li><span class="vehicle-type police">🚓 Police</span> - High priority</li>
+            <li><span class="vehicle-type government">🏛️ Government</span> - Medium priority</li>
+            <li><span class="vehicle-type regular">🚗 Regular</span> - Standard</li>
+          </ul>
+        </div>
+        <div class="info-card">
+          <h3>💡 Tips</h3>
+          <ul>
+            <li>Check for active crashes before changing lights</li>
+            <li>Use <code>isIntersectionSafe()</code> helper</li>
+            <li>Prioritize emergency vehicles</li>
+            <li>Don't make vehicles wait too long</li>
+            <li>Read <code>README.md</code> for full API docs</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <p>📚 Read <code>README.md</code> for complete API documentation | 🔧 Press F12 to open browser console for debugging</p>
+      <p>Educational game designed for learning programming through consequence-based decision making</p>
+    </footer>
+  </div>
+
+  <!-- Game Engine (must load before player code) -->
+  <script src="engine.js"></script>
+
+  <!-- Player Code (your traffic control algorithm) -->
+  <script src="player.js"></script>
+</body>
+</html>
