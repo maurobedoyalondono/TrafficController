@@ -67,7 +67,7 @@ const Config = {
   pedestrianSpawnChance: 0.8,    // 80% chance every check (FOR TESTING!)
   pedestrianSpawnInterval: 3000, // Check every 3 seconds (FOR TESTING!)
   pedestrianMaxActive: 3,        // Max 3 pedestrians at once
-  pedestrianSpeed: 0.4,          // VERY slow (vs 1.5 for cars)
+  pedestrianSpeed: 0.25,         // VERY slow (vs 1.5 for cars)
   pedestrianWidth: 15,
   pedestrianHeight: 20,
   pedestrianCollisionRadius: 25, // Collision detection

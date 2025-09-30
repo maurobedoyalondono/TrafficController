@@ -18,182 +18,99 @@
  *                            Can return empty array [] for all red
  */
 function controlTraffic(gameState) {
-  // ─────────────────────────────────────────────────────────────────────────
-  // AVAILABLE DATA (check README.md for details):
-  // ─────────────────────────────────────────────────────────────────────────
-  //
-  // gameState.score              - Your current points
-  // gameState.timeElapsed        - Seconds since game started
-  // gameState.totalCrashes       - Total crashes so far
-  // gameState.hasActiveCrashes   - true if intersection is blocked
-  //
-  // gameState.queues.north       - Array of vehicles waiting from north
-  // gameState.queues.south       - Array of vehicles waiting from south
-  // gameState.queues.east        - Array of vehicles waiting from east
-  // gameState.queues.west        - Array of vehicles waiting from west
-  //
-  // gameState.lights.north.state - 'red' or 'green'
-  // gameState.lights.south.state - 'red' or 'green'
-  // gameState.lights.east.state  - 'red' or 'green'
-  // gameState.lights.west.state  - 'red' or 'green'
-  //
-  // Each vehicle in queue has:
-  //   vehicle.type      - 'regular', 'ambulance', 'police', 'government'
-  //   vehicle.waitTime  - Seconds waiting
-  //   vehicle.state     - 'queued', 'moving', 'crashed'
-  //
-  // HELPER FUNCTION:
-  //   isIntersectionSafe(directions) - Returns true if safe to change lights
-  //
-  // ─────────────────────────────────────────────────────────────────────────
-
-  // ═════════════════════════════════════════════════════════════════════════
-  // YOUR CODE BELOW - Start simple and improve over time!
-  // ═════════════════════════════════════════════════════════════════════════
-
-  // LEVEL 1: Simple round-robin (will crash if you don't wait for intersection!)
-  const directions = ['north', 'south', 'east', 'west'];
-  const seconds = Math.floor(gameState.timeElapsed / 3);  // Change every 3 seconds
-  const index = seconds % 4;
-  return [directions[index]];
-
-  // ═════════════════════════════════════════════════════════════════════════
-  // TRY THESE IMPROVEMENTS:
-  // ═════════════════════════════════════════════════════════════════════════
-
-  // 1. Check for active crashes first!
-  //    if (gameState.hasActiveCrashes) return [];
-
-  // 2. Use isIntersectionSafe() before changing lights
-  //    if (isIntersectionSafe([direction])) return [direction];
-
-  // 3. Prioritize emergency vehicles
-  //    Check if first vehicle in queue is type 'ambulance' or 'police'
-
-  // 4. Consider wait times
-  //    Longer wait time = higher urgency
-
-  // 5. Balance between directions
-  //    Don't leave one direction waiting forever!
-
-  // ═════════════════════════════════════════════════════════════════════════
-  // EXAMPLE: Level 3 - Safe Round Robin (uncomment to use)
-  // ═════════════════════════════════════════════════════════════════════════
-
-  /*
-  // Safety first!
-  if (gameState.hasActiveCrashes) {
-    return [];  // Don't change lights if crashed vehicles blocking
-  }
-
-  // Round robin through directions
-  const directions = ['north', 'south', 'east', 'west'];
-  const seconds = Math.floor(gameState.timeElapsed / 3);
-  const index = seconds % 4;
-  const nextDirection = directions[index];
-
-  // Only change if safe!
-  if (isIntersectionSafe([nextDirection])) {
-    return [nextDirection];
-  }
-
-  return [];  // Wait for intersection to clear
-  */
-
-  // ═════════════════════════════════════════════════════════════════════════
-  // EXAMPLE: Level 4 - Priority System (uncomment to use)
-  // ═════════════════════════════════════════════════════════════════════════
-
-  /*
-  // Safety check
-  if (gameState.hasActiveCrashes) return [];
-
-  const directions = ['north', 'south', 'east', 'west'];
-
-  // Check for AMBULANCES (highest priority!)
-  for (let dir of directions) {
-    const queue = gameState.queues[dir];
-    if (queue.length > 0 && queue[0].type === 'ambulance') {
-      if (isIntersectionSafe([dir])) {
-        return [dir];
-      }
-    }
-  }
-
-  // Check for POLICE
-  for (let dir of directions) {
-    const queue = gameState.queues[dir];
-    if (queue.length > 0 && queue[0].type === 'police') {
-      if (isIntersectionSafe([dir])) {
-        return [dir];
-      }
-    }
-  }
-
-  // No emergencies - use round robin
-  const seconds = Math.floor(gameState.timeElapsed / 3);
-  const index = seconds % 4;
-  const nextDirection = directions[index];
-
-  if (isIntersectionSafe([nextDirection])) {
-    return [nextDirection];
-  }
-
-  return [];
-  */
-
-  // ═════════════════════════════════════════════════════════════════════════
-  // EXAMPLE: Level 5 - Advanced Urgency (uncomment to use)
-  // ═════════════════════════════════════════════════════════════════════════
-
-  /*
   // Safety first
-  if (gameState.hasActiveCrashes) return [];
+  if (gameState.hasActiveCrashes) {
+    return [];
+  }
 
-  const directions = ['north', 'south', 'east', 'west'];
-  let mostUrgent = null;
-  let highestUrgency = -1;
-
-  // Calculate urgency score for each direction
-  for (let dir of directions) {
-    const queue = gameState.queues[dir];
-    if (queue.length === 0) continue;
-
-    let urgency = 0;
-
-    // Sum urgency for all vehicles in queue
-    for (let vehicle of queue) {
-      let score = vehicle.waitTime;  // Base: wait time in seconds
-
-      // Multiply by vehicle type importance
-      if (vehicle.type === 'ambulance') score *= 10;
-      else if (vehicle.type === 'police') score *= 5;
-      else if (vehicle.type === 'government') score *= 2;
-      // regular = 1x (no multiplier)
-
-      urgency += score;
-    }
-
-    // Track most urgent
-    if (urgency > highestUrgency) {
-      highestUrgency = urgency;
-      mostUrgent = dir;
+  // Check for ambulances first (highest priority)
+  for (let dir of ['north', 'south', 'east', 'west']) {
+    for (let vehicle of gameState.queues[dir]) {
+      if (vehicle.type === 'ambulance') {
+        if (isIntersectionSafe([dir])) {
+          return [dir];
+        }
+      }
     }
   }
 
-  // Let most urgent direction go
-  if (mostUrgent && isIntersectionSafe([mostUrgent])) {
-    return [mostUrgent];
+  // Count pedestrians in each direction
+  const pedestrianCounts = {
+    north: 0,
+    south: 0,
+    east: 0,
+    west: 0
+  };
+
+  if (gameState.pedestrians) {
+    for (let ped of gameState.pedestrians) {
+      if (ped.state === 'crossing' || ped.state === 'queued') {
+        pedestrianCounts[ped.direction]++;
+      }
+    }
+  }
+
+  // Find direction with most pedestrians
+  let maxPedestrians = -1;
+  let priorityDir = null;
+
+  for (let dir of ['north', 'south', 'east', 'west']) {
+    if (pedestrianCounts[dir] > maxPedestrians) {
+      maxPedestrians = pedestrianCounts[dir];
+      priorityDir = dir;
+    }
+  }
+
+  // If pedestrians waiting, give them priority
+  if (maxPedestrians > 0 && priorityDir && isIntersectionSafe([priorityDir])) {
+    return [priorityDir];
+  }
+
+  // Count police cars in each direction
+  const policeCounts = {
+    north: 0,
+    south: 0,
+    east: 0,
+    west: 0
+  };
+
+  for (let dir of ['north', 'south', 'east', 'west']) {
+    for (let vehicle of gameState.queues[dir]) {
+      if (vehicle.type === 'police') {
+        policeCounts[dir]++;
+      }
+    }
+  }
+
+  // Find direction with most police
+  let maxPolice = -1;
+  priorityDir = null;
+
+  for (let dir of ['north', 'south', 'east', 'west']) {
+    if (policeCounts[dir] > maxPolice) {
+      maxPolice = policeCounts[dir];
+      priorityDir = dir;
+    }
+  }
+
+  // If no police cars anywhere, use total cars
+  if (maxPolice === 0) {
+    let maxTotal = -1;
+    for (let dir of ['north', 'south', 'east', 'west']) {
+      const total = gameState.queues[dir].length;
+      if (total > maxTotal) {
+        maxTotal = total;
+        priorityDir = dir;
+      }
+    }
+  }
+
+  // Give priority direction green light
+  if (priorityDir && isIntersectionSafe([priorityDir])) {
+    return [priorityDir];
   }
 
   return [];
-  */
-
-  // ═════════════════════════════════════════════════════════════════════════
-  // YOUR CUSTOM CODE HERE!
-  // ═════════════════════════════════════════════════════════════════════════
-
-  // ... write your own algorithm ...
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
